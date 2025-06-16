@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -19,14 +18,14 @@ namespace Ipfs.Engine.UnixFileSystem
     /// </remarks>
     public class ChunkedStream : Stream
     {
-        class BlockInfo
+        private class BlockInfo
         {
             public Cid Id;
             public long Position;
         }
 
-        List<BlockInfo> blocks = new List<BlockInfo>();
-        long fileSize;
+        private readonly List<BlockInfo> blocks = [];
+        private readonly long fileSize;
 
         /// <summary>
         ///   Creates a new instance of the <see cref="ChunkedStream"/> class with
@@ -54,8 +53,8 @@ namespace Ipfs.Engine.UnixFileSystem
             }
         }
 
-        IBlockApi BlockService { get; set; }
-        KeyChain KeyChain { get; set; }
+        private IBlockApi BlockService { get; set; }
+        private KeyChain KeyChain { get; set; }
 
         /// <inheritdoc />
         public override long Length => fileSize;
@@ -100,32 +99,35 @@ namespace Ipfs.Engine.UnixFileSystem
         }
 
         /// <inheritdoc />
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "VSTHRD002:Avoid problematic synchronous waits", Justification = "<Pending>")]
         public override int Read(byte[] buffer, int offset, int count)
         {
-            return ReadAsync(buffer, offset, count).ConfigureAwait(false).GetAwaiter().GetResult();
+            return ReadAsync(buffer, offset, count).GetAwaiter().GetResult();
         }
 
         /// <inheritdoc />
-        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancel)
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            var block = await GetBlockAsync(Position, cancel).ConfigureAwait(false);
-            var k = Math.Min(count, block.Count);
+            var block = await GetBlockAsync(Position, cancellationToken).ConfigureAwait(false);
+            var k = Math.Min(buffer.Length, block.Count);
             if (k > 0)
             {
-                Array.Copy(block.Array, block.Offset, buffer, offset, k);
+                block.AsMemory()[..k].CopyTo(buffer);
                 Position += k;
             }
+
             return k;
         }
 
-        BlockInfo currentBlock;
-        byte[] currentData;
-        async Task<ArraySegment<byte>> GetBlockAsync (long position, CancellationToken cancel)
+        private BlockInfo currentBlock;
+        private byte[] currentData;
+        private async Task<ArraySegment<byte>> GetBlockAsync (long position, CancellationToken cancel)
         {
             if (position >= Length)
             {
                 return new ArraySegment<byte>();
             }
+
             var need = blocks.Last(b => b.Position <= position);
             if (need != currentBlock)
             {
@@ -134,9 +136,10 @@ namespace Ipfs.Engine.UnixFileSystem
                 currentData = new byte[stream.Length];
                 for (int i = 0, n; i < stream.Length; i += n)
                 {
-                    n = await stream.ReadAsync(currentData, i, (int) stream.Length - i);
+                    n = await stream.ReadAsync(currentData.AsMemory(i, (int)stream.Length - i), cancel);
                 }
             }
+
             int offset = (int)(position - currentBlock.Position);
             return new ArraySegment<byte>(currentData, offset, currentData.Length - offset);
         }

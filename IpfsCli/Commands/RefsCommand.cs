@@ -1,12 +1,8 @@
 ﻿using McMaster.Extensions.CommandLineUtils;
-using System;
-using System.Collections.Generic;
-using System.Text;
 
-namespace Ipfs.Cli
+namespace Ipfs.Cli.Commands;
+
+[Command(Name = "refs", Description = "List hashes of links [WIP]")]
+internal class RefsCommand : CommandBase
 {
-    [Command(Description = "List hashes of links [WIP]")]
-    class RefsCommand : CommandBase
-    {
-    }
 }

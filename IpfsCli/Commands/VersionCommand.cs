@@ -1,20 +1,15 @@
 ﻿using McMaster.Extensions.CommandLineUtils;
-using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace Ipfs.Cli
+namespace Ipfs.Cli.Commands;
+
+[Command(Name = "version", Description = "Show version information")]
+internal class VersionCommand : CommandBase
 {
-    [Command(Description = "Show version information")]
-    class VersionCommand : CommandBase
-    {
-        public Program Parent { get; set; }
+    public Program Parent { get; set; }
 
-        protected override async Task<int> OnExecute(CommandLineApplication app)
-        {
-            var info = await Parent.CoreApi.Generic.VersionAsync();
-            return Parent.Output(app, info, null);
-        }
+    protected override async Task<int> OnExecute(CommandLineApplication app)
+    {
+        Dictionary<string, string> info = await Parent.CoreApi.Generic.VersionAsync();
+        return Parent.Output(app, info, null);
     }
 }

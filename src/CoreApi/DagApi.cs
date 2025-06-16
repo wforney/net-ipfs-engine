@@ -1,84 +1,79 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using Ipfs.CoreApi;
+﻿using Ipfs.CoreApi;
 using Ipfs.Engine.LinkedData;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using PeterO.Cbor;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Ipfs.Engine.CoreApi
 {
-    class DagApi : IDagApi
+    internal class DagApi(IpfsEngine ipfs) : IDagApi
     {
-        static readonly PODOptions podOptions = new PODOptions
-        (
+        [Obsolete]
+        private static readonly PODOptions podOptions = new(
             removeIsPrefix: false,
             useCamelCase: false
         );
-        IpfsEngine ipfs;
-
-        public DagApi(IpfsEngine ipfs)
-        {
-            this.ipfs = ipfs;
-        }
 
         public async Task<JObject> GetAsync(
             Cid id,
-            CancellationToken cancel = default(CancellationToken))
+            CancellationToken cancel = default)
         {
-            var block = await ipfs.Block.GetAsync(id, cancel).ConfigureAwait(false);
-            var format = GetDataFormat(id);
-            var canonical = format.Deserialise(block.DataBytes);
-            using (var ms = new MemoryStream())
-            using (var sr = new StreamReader(ms))
-            using (var reader = new JsonTextReader(sr))
-            {
-                canonical.WriteJSONTo(ms);
-                ms.Position = 0;
-                return (JObject) JObject.ReadFrom(reader);
-            }
+            IDataBlock block = await ipfs.Block.GetAsync(id, cancel).ConfigureAwait(false);
+            ILinkedDataFormat format = GetDataFormat(id);
+            CBORObject canonical = format.Deserialise(block.DataBytes);
+            using MemoryStream ms = new();
+            using StreamReader sr = new(ms);
+            using JsonTextReader reader = new(sr);
+            canonical.WriteJSONTo(ms);
+            ms.Position = 0;
+            return (JObject)JToken.ReadFrom(reader);
         }
 
         public async Task<JToken> GetAsync(
             string path,
-            CancellationToken cancel = default(CancellationToken))
+            CancellationToken cancel = default)
         {
             if (path.StartsWith("/ipfs/"))
             {
-                path = path.Remove(0, 6);
+                path = path[6..];
             }
 
-            var parts = path.Split('/').Where(p => p.Length > 0).ToArray();
+            string[] parts = [.. path.Split('/').Where(p => p.Length > 0)];
             if (parts.Length == 0)
+            {
                 throw new ArgumentException($"Cannot resolve '{path}'.");
+            }
 
             JToken token = await GetAsync(Cid.Decode(parts[0]), cancel).ConfigureAwait(false);
-            foreach (var child in parts.Skip(1))
+            foreach (string child in parts.Skip(1))
             {
                 token = ((JObject)token)[child];
                 if (token == null)
+                {
                     throw new Exception($"Missing component '{child}'.");
+                }
             }
 
             return token;
         }
 
         public async Task<T> GetAsync<T>(
-            Cid id, 
-            CancellationToken cancel = default(CancellationToken))
+            Cid id,
+            CancellationToken cancel = default)
         {
-            var block = await ipfs.Block.GetAsync(id, cancel).ConfigureAwait(false);
-            var format = GetDataFormat(id);
-            var canonical = format.Deserialise(block.DataBytes);
+            IDataBlock block = await ipfs.Block.GetAsync(id, cancel).ConfigureAwait(false);
+            ILinkedDataFormat format = GetDataFormat(id);
+            CBORObject canonical = format.Deserialise(block.DataBytes);
 
-            // CBOR does not support serialisation to another Type
-            // see https://github.com/peteroupc/CBOR/issues/12.
-            // So, convert to JSON and use Newtonsoft to deserialise.
+            // CBOR does not support serialisation to another Type see
+            // https://github.com/peteroupc/CBOR/issues/12. So, convert to JSON and use Newtonsoft
+            // to deserialise.
             return JObject
                 .Parse(canonical.ToJSONString())
                 .ToObject<T>();
@@ -90,59 +85,50 @@ namespace Ipfs.Engine.CoreApi
             string multiHash = MultiHash.DefaultAlgorithmName,
             string encoding = MultiBase.DefaultAlgorithmName,
             bool pin = true,
-            CancellationToken cancel = default(CancellationToken))
+            CancellationToken cancel = default)
         {
-            using (var ms = new MemoryStream())
-            using (var sw = new StreamWriter(ms))
-            using (var writer = new JsonTextWriter(sw))
-            {
-                await data.WriteToAsync(writer);
-                writer.Flush();
-                ms.Position = 0;
-                var format = GetDataFormat(contentType);
-                var block = format.Serialize(CBORObject.ReadJSON(ms));
-                return await ipfs.Block.PutAsync(block, contentType, multiHash, encoding, pin, cancel).ConfigureAwait(false);
-            }
+            using MemoryStream ms = new();
+            using StreamWriter sw = new(ms);
+            using JsonTextWriter writer = new(sw);
+            await data.WriteToAsync(writer);
+            writer.Flush();
+            ms.Position = 0;
+            ILinkedDataFormat format = GetDataFormat(contentType);
+            byte[] block = format.Serialize(CBORObject.ReadJSON(ms));
+            return await ipfs.Block.PutAsync(block, contentType, multiHash, encoding, pin, cancel).ConfigureAwait(false);
         }
 
         public async Task<Cid> PutAsync(Stream data,
             string contentType = "dag-cbor",
             string multiHash = MultiHash.DefaultAlgorithmName,
             string encoding = MultiBase.DefaultAlgorithmName,
-            bool pin = true, 
-            CancellationToken cancel = default(CancellationToken))
+            bool pin = true,
+            CancellationToken cancel = default)
         {
-            var format = GetDataFormat(contentType);
-            var block = format.Serialize(CBORObject.Read(data));
+            ILinkedDataFormat format = GetDataFormat(contentType);
+            byte[] block = format.Serialize(CBORObject.Read(data));
             return await ipfs.Block.PutAsync(block, contentType, multiHash, encoding, pin, cancel).ConfigureAwait(false);
         }
 
+        [Obsolete]
         public async Task<Cid> PutAsync(object data,
             string contentType = "dag-cbor",
             string multiHash = MultiHash.DefaultAlgorithmName,
             string encoding = MultiBase.DefaultAlgorithmName,
             bool pin = true,
-            CancellationToken cancel = default(CancellationToken))
+            CancellationToken cancel = default)
         {
-            var format = GetDataFormat(contentType);
-            var block = format.Serialize(CBORObject.FromObject(data, podOptions));
+            ILinkedDataFormat format = GetDataFormat(contentType);
+            byte[] block = format.Serialize(CBORObject.FromObject(data, podOptions));
             return await ipfs.Block.PutAsync(block, contentType, multiHash, encoding, pin, cancel).ConfigureAwait(false);
         }
 
-        ILinkedDataFormat GetDataFormat(Cid id)
-        {
-            if (IpldRegistry.Formats.TryGetValue(id.ContentType, out ILinkedDataFormat format))
-                return format;
+        private static ILinkedDataFormat GetDataFormat(Cid id) => IpldRegistry.Formats.TryGetValue(id.ContentType, out ILinkedDataFormat format)
+                ? format
+                : throw new KeyNotFoundException($"Unknown IPLD format '{id.ContentType}'.");
 
-            throw new KeyNotFoundException($"Unknown IPLD format '{id.ContentType}'.");
-        }
-
-        ILinkedDataFormat GetDataFormat(string contentType)
-        {
-            if (IpldRegistry.Formats.TryGetValue(contentType, out ILinkedDataFormat format))
-                return format;
-
-            throw new KeyNotFoundException($"Unknown IPLD format '{contentType}'.");
-        }
+        private static ILinkedDataFormat GetDataFormat(string contentType) => IpldRegistry.Formats.TryGetValue(contentType, out ILinkedDataFormat format)
+                ? format
+                : throw new KeyNotFoundException($"Unknown IPLD format '{contentType}'.");
     }
 }

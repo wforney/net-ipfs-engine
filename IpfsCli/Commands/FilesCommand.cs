@@ -1,12 +1,8 @@
 ﻿using McMaster.Extensions.CommandLineUtils;
-using System;
-using System.Collections.Generic;
-using System.Text;
 
-namespace Ipfs.Cli
+namespace Ipfs.Cli.Commands;
+
+[Command(Name = "files", Description = "Manage the mfs (Mutable File System) [WIP]")]
+internal class FilesCommand : CommandBase // TODO
 {
-    [Command(Description = "Manage the mfs (Mutable File System) [WIP]")]
-    class FilesCommand : CommandBase // TODO
-    {
-    }
 }

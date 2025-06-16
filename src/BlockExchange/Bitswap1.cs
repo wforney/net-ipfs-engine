@@ -1,53 +1,52 @@
 ﻿using Common.Logging;
 using PeerTalk;
-using PeerTalk.Protocols;
 using ProtoBuf;
 using Semver;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 #pragma warning disable 0649 // disable warning about unassinged fields
-#pragma warning disable 0169// disable warning about unassinged fields
+#pragma warning disable 0169 // disable warning about unassinged fields
 
 namespace Ipfs.Engine.BlockExchange
 {
     /// <summary>
-    ///   Bitswap Protocol version 1.0.0 
+    /// Bitswap Protocol version 1.0.0
     /// </summary>
     public class Bitswap1 : IBitswapProtocol
     {
-        static ILog log = LogManager.GetLogger(typeof(Bitswap1));
+        private static readonly ILog log = LogManager.GetLogger<Bitswap1>();
 
-        /// <inheritdoc />
+        /// <inheritdoc/>
         public string Name { get; } = "ipfs/bitswap";
 
-        /// <inheritdoc />
+        /// <inheritdoc/>
         public SemVersion Version { get; } = new SemVersion(1, 0);
 
-        /// <inheritdoc />
+        /// <inheritdoc/>
         public override string ToString()
         {
             return $"/{Name}/{Version}";
         }
 
         /// <summary>
-        ///   The <see cref="Bitswap"/> service.
+        /// The <see cref="Bitswap"/> service.
         /// </summary>
         public Bitswap Bitswap { get; set; }
 
-        /// <inheritdoc />
-        public async Task ProcessMessageAsync(PeerConnection connection, Stream stream, CancellationToken cancel = default(CancellationToken))
+        /// <inheritdoc/>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "VSTHRD003:Avoid awaiting foreign Tasks", Justification = "<Pending>")]
+        public async Task ProcessMessageAsync(PeerConnection connection, Stream stream, CancellationToken cancel = default)
         {
-            var request = await ProtoBufHelper.ReadMessageAsync<Message>(stream, cancel).ConfigureAwait(false);
+            Message request = await ProtoBufHelper.ReadMessageAsync<Message>(stream, cancel).ConfigureAwait(false);
 
-            // There is a race condition between getting the remote identity and
-            // the remote sending the first wantlist.
-            await connection.IdentityEstablished.Task.ConfigureAwait(false);
+            // There is a race condition between getting the remote identity and the remote sending
+            // the first wantlist.
+            _ = await connection.IdentityEstablished.Task.ConfigureAwait(false);
 
             log.Debug($"got message from {connection.RemotePeer}");
 
@@ -55,9 +54,9 @@ namespace Ipfs.Engine.BlockExchange
             if (request.wantlist != null && request.wantlist.entries != null)
             {
                 log.Debug("got want list");
-                foreach (var entry in request.wantlist.entries)
+                foreach (Entry entry in request.wantlist.entries)
                 {
-                    var s = Base58.ToBase58(entry.block);
+                    string s = Base58.ToBase58(entry.block);
                     Cid cid = s;
                     if (entry.cancel)
                     {
@@ -67,41 +66,34 @@ namespace Ipfs.Engine.BlockExchange
                     else
                     {
                         // TODO: Should we have a timeout?
-                        var _ = GetBlockAsync(cid, connection.RemotePeer, CancellationToken.None);
+                        _ = GetBlockAsync(cid, connection.RemotePeer, CancellationToken.None);
                     }
                 }
             }
 
-            // Forward sent blocks to the block service.  Eventually
-            // bitswap will here about and them and then continue
-            // any tasks (GetBlockAsync) waiting for the block.
-            if (request.blocks != null)
+            // Forward sent blocks to the block service. Eventually bitswap will here about and them
+            // and then continue any tasks (GetBlockAsync) waiting for the block.
+            if (request.blocks is not null)
             {
                 log.Debug("got some blocks");
-                foreach (var sentBlock in request.blocks)
+                foreach (byte[] sentBlock in request.blocks)
                 {
                     await Bitswap.OnBlockReceivedAsync(connection.RemotePeer, sentBlock);
                 }
             }
         }
 
-        async Task GetBlockAsync(Cid cid, Peer remotePeer, CancellationToken cancel)
+        private async Task GetBlockAsync(Cid cid, Peer remotePeer, CancellationToken cancel)
         {
             // TODO: Determine if we will fetch the block for the remote
             try
             {
-                IDataBlock block;
-                if (null != await Bitswap.BlockService.StatAsync(cid, cancel).ConfigureAwait(false))
-                {
-                    block = await Bitswap.BlockService.GetAsync(cid, cancel).ConfigureAwait(false);
-                }
-                else
-                {
-                    block = await Bitswap.WantAsync(cid, remotePeer.Id, cancel).ConfigureAwait(false);
-                }
+                IDataBlock block = null != await Bitswap.BlockService.StatAsync(cid, cancel).ConfigureAwait(false)
+                    ? await Bitswap.BlockService.GetAsync(cid, cancel).ConfigureAwait(false)
+                    : await Bitswap.WantAsync(cid, remotePeer.Id, cancel).ConfigureAwait(false);
 
                 // Send block to remote.
-                using (var stream = await Bitswap.Swarm.DialAsync(remotePeer, this.ToString()).ConfigureAwait(false))
+                using (Stream stream = await Bitswap.Swarm.DialAsync(remotePeer, ToString()).ConfigureAwait(false))
                 {
                     await SendAsync(stream, block, cancel).ConfigureAwait(false);
                 }
@@ -114,59 +106,57 @@ namespace Ipfs.Engine.BlockExchange
             }
         }
 
-        /// <inheritdoc />
+        /// <inheritdoc/>
         public async Task SendWantsAsync(
             Stream stream,
             IEnumerable<WantedBlock> wants,
             bool full = true,
-            CancellationToken cancel = default(CancellationToken)
+            CancellationToken cancel = default
             )
         {
             log.Debug("Sending want list");
 
-            var message = new Message
+            Message message = new()
             {
                 wantlist = new Wantlist
                 {
                     full = full,
-                    entries = wants
+                    entries = [.. wants
                         .Select(w => new Entry
                         {
                             block = w.Id.Hash.ToArray()
-                        })
-                        .ToArray()
+                        })]
                 }
             };
 
-            ProtoBuf.Serializer.SerializeWithLengthPrefix<Message>(stream, message, PrefixStyle.Base128);
+            Serializer.SerializeWithLengthPrefix(stream, message, PrefixStyle.Base128);
             await stream.FlushAsync(cancel).ConfigureAwait(false);
         }
 
         internal async Task SendAsync(
             Stream stream,
             IDataBlock block,
-            CancellationToken cancel = default(CancellationToken)
+            CancellationToken cancel = default
             )
         {
             log.Debug($"Sending block {block.Id}");
 
-            var message = new Message
+            Message message = new()
             {
-                blocks = new byte[][]
-                {
+                blocks =
+                [
                     block.DataBytes
-                }
+                ]
             };
 
-            ProtoBuf.Serializer.SerializeWithLengthPrefix<Message>(stream, message, PrefixStyle.Base128);
+            Serializer.SerializeWithLengthPrefix(stream, message, PrefixStyle.Base128);
             await stream.FlushAsync(cancel).ConfigureAwait(false);
         }
 
         [ProtoContract]
-        class Entry
+        private class Entry
         {
             [ProtoMember(1)]
-            // changed from string to bytes, it makes a difference in JavaScript
             public byte[] block;      // the block cid (cidV0 in bitswap 1.0.0, cidV1 in bitswap 1.1.0)
 
             [ProtoMember(2)]
@@ -177,7 +167,7 @@ namespace Ipfs.Engine.BlockExchange
         }
 
         [ProtoContract]
-        class Wantlist
+        private class Wantlist
         {
             [ProtoMember(1)]
             public Entry[] entries;       // a list of wantlist entries
@@ -187,7 +177,7 @@ namespace Ipfs.Engine.BlockExchange
         }
 
         [ProtoContract]
-        class Message
+        private class Message
         {
             [ProtoMember(1)]
             public Wantlist wantlist;
@@ -195,6 +185,5 @@ namespace Ipfs.Engine.BlockExchange
             [ProtoMember(2)]
             public byte[][] blocks;
         }
-
     }
 }

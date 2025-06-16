@@ -1,155 +1,131 @@
 ﻿using Common.Logging;
 using Ipfs.CoreApi;
 using PeerTalk;
-using PeerTalk.Protocols;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Ipfs.Engine.BlockExchange
 {
     /// <summary>
-    ///   Exchange blocks with other peers.
+    /// Exchange blocks with other peers.
     /// </summary>
     public class Bitswap : IService
     {
-        static ILog log = LogManager.GetLogger(typeof(Bitswap));
+        private static readonly ILog log = LogManager.GetLogger<Bitswap>();
 
-        ConcurrentDictionary<Cid, WantedBlock> wants = new ConcurrentDictionary<Cid, WantedBlock>();
-        ConcurrentDictionary<Peer, BitswapLedger> peerLedgers = new ConcurrentDictionary<Peer, BitswapLedger>();
+        private readonly ConcurrentDictionary<Cid, WantedBlock> wants = new();
+        private readonly ConcurrentDictionary<Peer, BitswapLedger> peerLedgers = new();
 
         /// <summary>
-        ///   The supported bitswap protocols.
+        /// The supported bitswap protocols.
         /// </summary>
-        /// <value>
-        ///   Defaults to <see cref="Bitswap11"/> and <see cref="Bitswap1"/>.
-        /// </value>
+        /// <value>Defaults to <see cref="Bitswap11"/> and <see cref="Bitswap1"/>.</value>
         public IBitswapProtocol[] Protocols;
 
         /// <summary>
-        ///   The number of blocks sent by other peers.
+        /// The number of blocks sent by other peers.
         /// </summary>
-        ulong BlocksReceived;
+        private ulong BlocksReceived;
 
         /// <summary>
-        ///   The number of bytes sent by other peers.
+        /// The number of bytes sent by other peers.
         /// </summary>
-        ulong DataReceived;
+        private ulong DataReceived;
 
         /// <summary>
-        ///   The number of blocks sent to other peers.
+        /// The number of blocks sent to other peers.
         /// </summary>
-        ulong BlocksSent;
+        private ulong BlocksSent;
 
         /// <summary>
-        ///   The number of bytes sent to other peers.
+        /// The number of bytes sent to other peers.
         /// </summary>
-        ulong DataSent;
+        private ulong DataSent;
 
         /// <summary>
-        ///   The number of duplicate blocks sent by other peers.
+        /// The number of duplicate blocks sent by other peers.
         /// </summary>
-        /// <remarks>
-        ///   A duplicate block is a block that is already stored in the
-        ///   local repository.
-        /// </remarks>
-        ulong DupBlksReceived;
+        /// <remarks>A duplicate block is a block that is already stored in the local repository.</remarks>
+        private ulong DupBlksReceived;
 
         /// <summary>
-        ///   The number of duplicate bytes sent by other peers.
+        /// The number of duplicate bytes sent by other peers.
         /// </summary>
-        /// <remarks>
-        ///   A duplicate block is a block that is already stored in the
-        ///   local repository.
-        /// </remarks>
-        ulong DupDataReceived;
+        /// <remarks>A duplicate block is a block that is already stored in the local repository.</remarks>
+        private ulong DupDataReceived;
 
         /// <summary>
-        ///   Creates a new instance of the <see cref="Bitswap"/> class.
+        /// Creates a new instance of the <see cref="Bitswap"/> class.
         /// </summary>
         public Bitswap()
         {
-            Protocols = new IBitswapProtocol[]
-            {
-                new Bitswap11 { Bitswap = this },
-                new Bitswap1 { Bitswap = this }
-            };
+            Protocols =
+                [
+                    new Bitswap11 { Bitswap = this },
+                    new Bitswap1 { Bitswap = this }
+                ];
         }
 
         /// <summary>
-        ///   Provides access to other peers.
+        /// Provides access to other peers.
         /// </summary>
         public Swarm Swarm { get; set; }
 
         /// <summary>
-        ///   Provides access to blocks of data.
+        /// Provides access to blocks of data.
         /// </summary>
         public IBlockApi BlockService { get; set; }
 
         /// <summary>
-        ///   Statistics on the bitswap component.
+        /// Statistics on the bitswap component.
         /// </summary>
-        /// <seealso cref="Ipfs.CoreApi.IStatsApi"/>
-        public BitswapData Statistics
+        /// <seealso cref="IStatsApi"/>
+        public BitswapData Statistics => new()
         {
-            get
-            {
-                return new BitswapData
-                {
-                    BlocksReceived = BlocksReceived,
-                    BlocksSent = BlocksSent,
-                    DataReceived = DataReceived,
-                    DataSent = DataSent,
-                    DupBlksReceived = DupBlksReceived,
-                    DupDataReceived = DupDataReceived,
-                    ProvideBufLen = 0, // TODO: Unknown meaning
-                    Peers = Swarm.KnownPeers.Select(p => p.Id),
-                    Wantlist = wants.Keys
-                };
-            }
-        }
+            BlocksReceived = BlocksReceived,
+            BlocksSent = BlocksSent,
+            DataReceived = DataReceived,
+            DataSent = DataSent,
+            DupBlksReceived = DupBlksReceived,
+            DupDataReceived = DupDataReceived,
+            ProvideBufLen = 0, // TODO: Unknown meaning
+            Peers = Swarm.KnownPeers.Select(p => p.Id),
+            Wantlist = wants.Keys
+        };
 
         /// <summary>
-        ///   Gets the bitswap ledger for the specified peer.
+        /// Gets the bitswap ledger for the specified peer.
         /// </summary>
         /// <param name="peer">
-        ///   The peer to get information on.  If the peer is unknown, then a ledger
-        ///   with zeros is returned.
+        /// The peer to get information on. If the peer is unknown, then a ledger with zeros is returned.
         /// </param>
-        /// <returns>
-        ///   Statistics on the bitswap blocks exchanged with the peer.
-        /// </returns>
-        /// <seealso cref="Ipfs.CoreApi.IBitswapApi.LedgerAsync(Peer, CancellationToken)"/>
+        /// <returns>Statistics on the bitswap blocks exchanged with the peer.</returns>
+        /// <seealso cref="IBitswapApi.LedgerAsync(Peer, CancellationToken)"/>
         public BitswapLedger PeerLedger(Peer peer)
         {
-            if (peerLedgers.TryGetValue(peer, out BitswapLedger ledger))
-            {
-                return ledger;
-            }
-            return new BitswapLedger { Peer = peer };
+            return peerLedgers.TryGetValue(peer, out BitswapLedger ledger) ? ledger : new BitswapLedger { Peer = peer };
         }
-        
+
         /// <summary>
-        ///   Raised when a blocked is needed.
+        /// Raised when a blocked is needed.
         /// </summary>
-        /// <remarks>
-        ///   Only raised when a block is first requested.
-        /// </remarks>
+        /// <remarks>Only raised when a block is first requested.</remarks>
         public event EventHandler<CidEventArgs> BlockNeeded;
 
-        /// <inheritdoc />
+        /// <inheritdoc/>
         public Task StartAsync()
         {
             log.Debug("Starting");
 
-            foreach (var protocol in Protocols)
+            foreach (IBitswapProtocol protocol in Protocols)
             {
                 Swarm.AddProtocol(protocol);
             }
+
             Swarm.ConnectionEstablished += Swarm_ConnectionEstablished;
 
             // TODO: clear the stats.
@@ -158,24 +134,23 @@ namespace Ipfs.Engine.BlockExchange
             return Task.CompletedTask;
         }
 
-        // When a connection is established
-        // (1) Send the local peer's want list to the remote
-#pragma warning disable VSTHRD100 // Avoid async void methods
-        async void Swarm_ConnectionEstablished(object sender, PeerConnection connection)
-#pragma warning restore VSTHRD100 // Avoid async void methods
+        // When a connection is established (1) Send the local peer's want list to the remote
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "VSTHRD100:Avoid async void methods", Justification = "<Pending>")]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "VSTHRD003:Avoid awaiting foreign Tasks", Justification = "<Pending>")]
+        private async void Swarm_ConnectionEstablished(object sender, PeerConnection connection)
         {
-            if (wants.Count == 0)
+            if (wants.IsEmpty)
             {
                 return;
             }
             try
             {
-                // There is a race condition between getting the remote identity and
-                // the remote sending the first wantlist.
-                var peer = await connection.IdentityEstablished.Task.ConfigureAwait(false);
+                // There is a race condition between getting the remote identity and the remote
+                // sending the first wantlist.
+                Peer peer = await connection.IdentityEstablished.Task.ConfigureAwait(false);
 
                 // Fire and forget.
-                var _ = SendWantListAsync(peer, wants.Values, true);
+                SendWantListAsync(peer, wants.Values, true).Forget();
             }
             catch (Exception e)
             {
@@ -183,18 +158,18 @@ namespace Ipfs.Engine.BlockExchange
             }
         }
 
-        /// <inheritdoc />
+        /// <inheritdoc/>
         public Task StopAsync()
         {
             log.Debug("Stopping");
 
             Swarm.ConnectionEstablished -= Swarm_ConnectionEstablished;
-            foreach (var protocol in Protocols)
+            foreach (IBitswapProtocol protocol in Protocols)
             {
                 Swarm.RemoveProtocol(protocol);
             }
 
-            foreach (var cid in wants.Keys)
+            foreach (Cid cid in wants.Keys)
             {
                 Unwant(cid);
             }
@@ -203,14 +178,10 @@ namespace Ipfs.Engine.BlockExchange
         }
 
         /// <summary>
-        ///   The blocks needed by the peer.
+        /// The blocks needed by the peer.
         /// </summary>
-        /// <param name="peer">
-        ///   The unique ID of the peer.
-        /// </param>
-        /// <returns>
-        ///   The sequence of CIDs need by the <paramref name="peer"/>.
-        /// </returns>
+        /// <param name="peer">The unique ID of the peer.</param>
+        /// <returns>The sequence of CIDs need by the <paramref name="peer"/>.</returns>
         public IEnumerable<Cid> PeerWants(MultiHash peer)
         {
             return wants.Values
@@ -219,29 +190,25 @@ namespace Ipfs.Engine.BlockExchange
         }
 
         /// <summary>
-        ///   Adds a block to the want list.
+        /// Adds a block to the want list.
         /// </summary>
-        /// <param name="id">
-        ///   The CID of the block to add to the want list.
-        /// </param>
+        /// <param name="id">The CID of the block to add to the want list.</param>
         /// <param name="peer">
-        ///   The unique ID of the peer that wants the block.  This is for
-        ///   information purposes only.
+        /// The unique ID of the peer that wants the block. This is for information purposes only.
         /// </param>
         /// <param name="cancel">
-        ///   Is used to stop the task.  When cancelled, the <see cref="TaskCanceledException"/> is raised.
+        /// Is used to stop the task. When cancelled, the <see cref="TaskCanceledException"/> is raised.
         /// </param>
         /// <returns>
-        ///   A task that represents the asynchronous operation. The task's result is
-        ///   the contents of block.
+        /// A task that represents the asynchronous operation. The task's result is the contents of block.
         /// </returns>
         /// <remarks>
-        ///   Other peers are informed that the block is needed by this peer. Hopefully,
-        ///   someone will forward it to us.
-        ///   <para>
-        ///   Besides using <paramref name="cancel"/> for cancellation, the 
-        ///   <see cref="Unwant"/> method will also cancel the operation.
-        ///   </para>
+        /// Other peers are informed that the block is needed by this peer. Hopefully, someone will
+        /// forward it to us.
+        /// <para>
+        /// Besides using <paramref name="cancel"/> for cancellation, the <see cref="Unwant"/>
+        /// method will also cancel the operation.
+        /// </para>
         /// </remarks>
         public Task<IDataBlock> WantAsync(Cid id, MultiHash peer, CancellationToken cancel)
         {
@@ -250,14 +217,14 @@ namespace Ipfs.Engine.BlockExchange
                 log.Debug($"{peer} wants {id}");
             }
 
-            var tsc = new TaskCompletionSource<IDataBlock>();
-            var want = wants.AddOrUpdate(
+            TaskCompletionSource<IDataBlock> tsc = new();
+            WantedBlock want = wants.AddOrUpdate(
                 id,
                 (key) => new WantedBlock
                 {
                     Id = id,
-                    Consumers = new List<TaskCompletionSource<IDataBlock>> { tsc },
-                    Peers = new List<MultiHash> { peer }
+                    Consumers = [tsc],
+                    Peers = [peer]
                 },
                 (key, block) =>
                 {
@@ -268,12 +235,12 @@ namespace Ipfs.Engine.BlockExchange
             );
 
             // If cancelled, then the block is unwanted.
-            cancel.Register(() => Unwant(id));
+            _ = cancel.Register(() => Unwant(id));
 
             // If first time, tell other peers.
             if (want.Consumers.Count == 1)
             {
-                var _ = SendWantListToAllAsync(new[] { want }, full: false);
+                _ = SendWantListToAllAsync([want], full: false);
                 BlockNeeded?.Invoke(this, new CidEventArgs { Id = want.Id });
             }
 
@@ -281,17 +248,12 @@ namespace Ipfs.Engine.BlockExchange
         }
 
         /// <summary>
-        ///   Removes the block from the want list.
+        /// Removes the block from the want list.
         /// </summary>
-        /// <param name="id">
-        ///   The CID of the block to remove from the want list.
-        /// </param>
+        /// <param name="id">The CID of the block to remove from the want list.</param>
         /// <remarks>
-        ///   Any tasks waiting for the block are cancelled.
-        ///   <para>
-        ///   No exception is thrown if the <paramref name="id"/> is not
-        ///   on the want list.
-        ///   </para>
+        /// Any tasks waiting for the block are cancelled.
+        /// <para>No exception is thrown if the <paramref name="id"/> is not on the want list.</para>
         /// </remarks>
         public void Unwant(Cid id)
         {
@@ -302,7 +264,7 @@ namespace Ipfs.Engine.BlockExchange
 
             if (wants.TryRemove(id, out WantedBlock block))
             {
-                foreach (var consumer in block.Consumers)
+                foreach (TaskCompletionSource<IDataBlock> consumer in block.Consumers)
                 {
                     consumer.SetCanceled();
                 }
@@ -312,25 +274,17 @@ namespace Ipfs.Engine.BlockExchange
         }
 
         /// <summary>
-        ///   Indicate that a remote peer sent a block.
+        /// Indicate that a remote peer sent a block.
         /// </summary>
-        /// <param name="remote">
-        ///   The peer that sent the block.
-        /// </param>
-        /// <param name="block">
-        ///   The data for the block.
-        /// </param>
-        /// <returns>
-        ///   A task that represents the asynchronous operation.
-        /// </returns>
+        /// <param name="remote">The peer that sent the block.</param>
+        /// <param name="block">The data for the block.</param>
+        /// <returns>A task that represents the asynchronous operation.</returns>
         /// <remarks>
-        ///   <para>
-        ///   Updates the statistics.
-        ///   </para>
-        ///   <para>
-        ///   If the block is acceptable then the <paramref name="block"/> is added to local cache
-        ///   via the <see cref="BlockService"/>.
-        ///   </para>
+        /// <para>Updates the statistics.</para>
+        /// <para>
+        /// If the block is acceptable then the <paramref name="block"/> is added to local cache via
+        /// the <see cref="BlockService"/>.
+        /// </para>
         /// </remarks>
         public Task OnBlockReceivedAsync(Peer remote, byte[] block)
         {
@@ -338,45 +292,33 @@ namespace Ipfs.Engine.BlockExchange
         }
 
         /// <summary>
-        ///   Indicate that a remote peer sent a block.
+        /// Indicate that a remote peer sent a block.
         /// </summary>
-        /// <param name="remote">
-        ///   The peer that sent the block.
-        /// </param>
-        /// <param name="block">
-        ///   The data for the block.
-        /// </param>
-        /// <param name="contentType">
-        ///   The <see cref="Cid.ContentType"/> of the block.
-        /// </param>
-        /// <param name="multiHash">
-        ///   The multihash algorithm name of the block.
-        /// </param>
-        /// <returns>
-        ///   A task that represents the asynchronous operation.
-        /// </returns>
+        /// <param name="remote">The peer that sent the block.</param>
+        /// <param name="block">The data for the block.</param>
+        /// <param name="contentType">The <see cref="Cid.ContentType"/> of the block.</param>
+        /// <param name="multiHash">The multihash algorithm name of the block.</param>
+        /// <returns>A task that represents the asynchronous operation.</returns>
         /// <remarks>
-        ///   <para>
-        ///   Updates the statistics.
-        ///   </para>
-        ///   <para>
-        ///   If the block is acceptable then the <paramref name="block"/> is added to local cache
-        ///   via the <see cref="BlockService"/>.
-        ///   </para>
+        /// <para>Updates the statistics.</para>
+        /// <para>
+        /// If the block is acceptable then the <paramref name="block"/> is added to local cache via
+        /// the <see cref="BlockService"/>.
+        /// </para>
         /// </remarks>
         public async Task OnBlockReceivedAsync(Peer remote, byte[] block, string contentType, string multiHash)
         {
             // Update statistics.
             ++BlocksReceived;
             DataReceived += (ulong)block.LongLength;
-            peerLedgers.AddOrUpdate(remote,
+            _ = peerLedgers.AddOrUpdate(remote,
                 (peer) => new BitswapLedger
                 {
                     Peer = peer,
                     BlocksExchanged = 1,
                     DataReceived = (ulong)block.LongLength
                 },
-                (peer, ledger) => 
+                (peer, ledger) =>
                 {
                     ++ledger.BlocksExchanged;
                     DataReceived += (ulong)block.LongLength;
@@ -384,7 +326,7 @@ namespace Ipfs.Engine.BlockExchange
                 });
 
             // TODO: Detect if duplicate and update stats
-            var isDuplicate = false;
+            bool isDuplicate = false;
             if (isDuplicate)
             {
                 ++DupBlksReceived;
@@ -392,35 +334,30 @@ namespace Ipfs.Engine.BlockExchange
             }
 
             // TODO: Determine if we should accept the block from the remote.
-            var acceptble = true;
-            if (acceptble)
+            bool acceptable = true;
+            if (acceptable)
             {
-                await BlockService.PutAsync(
-                    data: block,
-                    contentType: contentType,
-                    multiHash: multiHash,
-                    pin: false)
+                _ = await BlockService
+                    .PutAsync(
+                        data: block,
+                        contentType: contentType,
+                        multiHash: multiHash,
+                        pin: false)
                     .ConfigureAwait(false);
             }
         }
 
         /// <summary>
-        ///   Indicate that the local peer sent a block to a remote peer.
+        /// Indicate that the local peer sent a block to a remote peer.
         /// </summary>
-        /// <param name="remote">
-        ///   The peer that sent the block.
-        /// </param>
-        /// <param name="block">
-        ///   The data for the block.
-        /// </param>
-        /// <returns>
-        ///   A task that represents the asynchronous operation.
-        /// </returns>
+        /// <param name="remote">The peer that sent the block.</param>
+        /// <param name="block">The data for the block.</param>
+        /// <returns>A task that represents the asynchronous operation.</returns>
         public Task OnBlockSentAsync(Peer remote, IDataBlock block)
         {
             ++BlocksSent;
             DataSent += (ulong)block.Size;
-            peerLedgers.AddOrUpdate(remote,
+            _ = peerLedgers.AddOrUpdate(remote,
                 (peer) => new BitswapLedger
                 {
                     Peer = peer,
@@ -438,24 +375,19 @@ namespace Ipfs.Engine.BlockExchange
         }
 
         /// <summary>
-        ///   Indicate that a block is found.
+        /// Indicate that a block is found.
         /// </summary>
-        /// <param name="block">
-        ///   The block that was found.
-        /// </param>
-        /// <returns>
-        ///   The number of consumers waiting for the <paramref name="block"/>.
-        /// </returns>
+        /// <param name="block">The block that was found.</param>
+        /// <returns>The number of consumers waiting for the <paramref name="block"/>.</returns>
         /// <remarks>
-        ///   <b>Found</b> should be called whenever a new block is discovered. 
-        ///   It will continue any Task that is waiting for the block and
-        ///   remove the block from the want list.
+        /// <b>Found</b> should be called whenever a new block is discovered. It will continue any
+        /// Task that is waiting for the block and remove the block from the want list.
         /// </remarks>
         public int Found(IDataBlock block)
         {
             if (wants.TryRemove(block.Id, out WantedBlock want))
             {
-                foreach (var consumer in want.Consumers)
+                foreach (TaskCompletionSource<IDataBlock> consumer in want.Consumers)
                 {
                     consumer.SetResult(block);
                 }
@@ -466,25 +398,31 @@ namespace Ipfs.Engine.BlockExchange
         }
 
         /// <summary>
-        ///   Send our want list to the connected peers.
+        /// Send our want list to the connected peers.
         /// </summary>
-        async Task SendWantListToAllAsync(IEnumerable<WantedBlock> wants, bool full)
+        private async Task SendWantListToAllAsync(IEnumerable<WantedBlock> wants, bool full)
         {
-            if (Swarm == null)
+            if (Swarm is null)
+            {
                 return;
+            }
 
             try
             {
-                var tasks = Swarm.KnownPeers
-                    .Where(p => p.ConnectedAddress != null)
-                    .Select(p => SendWantListAsync(p, wants, full))
-                    .ToArray();
+                Task[] tasks = [.. Swarm.KnownPeers
+                    .Where(p => p.ConnectedAddress is not null)
+                    .Select(p => SendWantListAsync(p, wants, full))];
                 if (log.IsDebugEnabled)
-                    log.Debug($"Spamming {tasks.Count()} connected peers");
+                {
+                    log.Debug($"Spamming {tasks.Length} connected peers");
+                }
+
                 await Task.WhenAll(tasks).ConfigureAwait(false);
 
                 if (log.IsDebugEnabled)
-                    log.Debug($"Spam {tasks.Count()} connected peers done");
+                {
+                    log.Debug($"Spam {tasks.Length} connected peers done");
+                }
             }
             catch (Exception e)
             {
@@ -492,20 +430,17 @@ namespace Ipfs.Engine.BlockExchange
             }
         }
 
-        async Task SendWantListAsync(Peer peer, IEnumerable<WantedBlock> wants, bool full)
+        private async Task SendWantListAsync(Peer peer, IEnumerable<WantedBlock> wants, bool full)
         {
             log.Debug($"sending want list to {peer}");
 
-            // Send the want list to the peer on any bitswap protocol
-            // that it supports.
-            foreach (var protocol in Protocols)
+            // Send the want list to the peer on any bitswap protocol that it supports.
+            foreach (IBitswapProtocol protocol in Protocols)
             {
                 try
                 {
-                    using (var stream = await Swarm.DialAsync(peer, protocol.ToString()).ConfigureAwait(false))
-                    {
-                        await protocol.SendWantsAsync(stream, wants, full: full).ConfigureAwait(false);
-                    }
+                    using System.IO.Stream stream = await Swarm.DialAsync(peer, protocol.ToString()).ConfigureAwait(false);
+                    await protocol.SendWantsAsync(stream, wants, full: full).ConfigureAwait(false);
                     return;
                 }
                 catch (Exception)
@@ -516,6 +451,5 @@ namespace Ipfs.Engine.BlockExchange
 
             log.Warn($"{peer} does not support any bitswap protocol");
         }
-
     }
 }

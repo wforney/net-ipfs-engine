@@ -4,15 +4,14 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Ipfs.Cli
+namespace Ipfs.Cli;
+
+[HelpOption("--help")]
+abstract class CommandBase
 {
-    [HelpOption("--help")]
-    abstract class CommandBase
+    protected virtual Task<int> OnExecute(CommandLineApplication app)
     {
-        protected virtual Task<int> OnExecute(CommandLineApplication app)
-        {
-            app.Error.WriteLine($"The command '{app.Name}' is not implemented yet.");
-            return Task.FromResult(1);
-        }
+        app.Error.WriteLine($"The command '{app.Name}' is not implemented yet.");
+        return Task.FromResult(1);
     }
 }

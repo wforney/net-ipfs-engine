@@ -1,12 +1,8 @@
 ﻿using McMaster.Extensions.CommandLineUtils;
-using System;
-using System.Collections.Generic;
-using System.Text;
 
-namespace Ipfs.Cli
+namespace Ipfs.Cli.Commands;
+
+[Command(Name = "init", Description = "Initialize ipfs local configuration [WIP]")]
+internal class InitCommand : CommandBase
 {
-    [Command(Description = "Initialize ipfs local configuration [WIP]")]
-    class InitCommand : CommandBase
-    {
-    }
 }

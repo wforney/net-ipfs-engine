@@ -1,20 +1,15 @@
 ﻿using McMaster.Extensions.CommandLineUtils;
-using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
-using System.Threading.Tasks;
 
-namespace Ipfs.Cli
+namespace Ipfs.Cli.Commands;
+
+[Command(Name = "shutdown", Description = "Stop the IPFS daemon")]
+internal class ShutdownCommand : CommandBase
 {
-    [Command(Description = "Stop the IPFS deamon")]
-    class ShutdownCommand : CommandBase
-    {
-        Program Parent { get; set; }
+    private Program Parent { get; set; }
 
-        protected override async Task<int> OnExecute(CommandLineApplication app)
-        {
-            await Parent.CoreApi.Generic.ShutdownAsync();
-            return 0;
-        }
+    protected override async Task<int> OnExecute(CommandLineApplication app)
+    {
+        await Parent.CoreApi.Generic.ShutdownAsync();
+        return 0;
     }
 }

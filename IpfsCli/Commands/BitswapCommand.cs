@@ -1,100 +1,94 @@
 ﻿using McMaster.Extensions.CommandLineUtils;
-using System;
-using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace Ipfs.Cli
+namespace Ipfs.Cli.Commands;
+
+[Command(Name = "bitswap", Description = "Manage swapped blocks")]
+[Subcommand(typeof(BitswapWantListCommand))]
+[Subcommand(typeof(BitswapUnwantCommand))]
+[Subcommand(typeof(BitswapLedgerCommand))]
+[Subcommand(typeof(BitswapStatCommand))]
+internal class BitswapCommand : CommandBase
 {
-    [Command(Description = "Manage swapped blocks")]
-    [Subcommand("wantlist", typeof(BitswapWantListCommand))]
-    [Subcommand("unwant", typeof(BitswapUnwantCommand))]
-    [Subcommand("ledger", typeof(BitswapLedgerCommand))]
-    [Subcommand("stat", typeof(BitswapStatCommand))]
-    class BitswapCommand : CommandBase
-    {
-        public Program Parent { get; set; }
+    public Program Parent { get; set; }
 
-        protected override Task<int> OnExecute(CommandLineApplication app)
-        {
-            app.ShowHelp();
-            return Task.FromResult(0);
-        }
+    protected override Task<int> OnExecute(CommandLineApplication app)
+    {
+        app.ShowHelp();
+        return Task.FromResult(0);
     }
+}
 
-    [Command(Description = "Show blocks currently on the wantlist")]
-    class BitswapWantListCommand : CommandBase
+[Command(Name = "ledger", Description = "Show the current ledger for a peer")]
+internal class BitswapLedgerCommand : CommandBase
+{
+    [Argument(0, "peerid", "The PeerID (B58) of the ledger to inspect")]
+    [Required]
+    public string PeerId { get; set; }
+
+    private BitswapCommand Parent { get; set; }
+
+    protected override async Task<int> OnExecute(CommandLineApplication app)
     {
-        [Option("-p|--peer", Description = "Peer to show wantlist for. Default: self.")]
-        public string PeerId { get; set; }
+        Program Program = Parent.Parent;
+        Peer peer = new() { Id = PeerId };
+        CoreApi.BitswapLedger ledger = await Program.CoreApi.Bitswap.LedgerAsync(peer);
+        return Program.Output(app, ledger, null);
+    }
+}
 
-        BitswapCommand Parent { get; set; }
+[Command(Name = "unwant", Description = "Remove a block from the wantlist")]
+internal class BitswapUnwantCommand : CommandBase
+{
+    [Argument(0, "cid", "The content ID of the block")]
+    [Required]
+    public string Cid { get; set; }
 
-        protected override async Task<int> OnExecute(CommandLineApplication app)
+    private BitswapCommand Parent { get; set; }
+
+    protected override async Task<int> OnExecute(CommandLineApplication app)
+    {
+        Program Program = Parent.Parent;
+        await Program.CoreApi.Bitswap.UnwantAsync(Cid);
+        return 0;
+    }
+}
+
+[Command(Name = "wantlist", Description = "Show blocks currently on the wantlist")]
+internal class BitswapWantListCommand : CommandBase
+{
+    [Option("-p|--peer", Description = "Peer to show wantlist for. Default: self.")]
+    public string PeerId { get; set; }
+
+    private BitswapCommand Parent { get; set; }
+
+    protected override async Task<int> OnExecute(CommandLineApplication app)
+    {
+        Program Program = Parent.Parent;
+        MultiHash peer = PeerId == null
+            ? null
+            : new MultiHash(PeerId);
+        IEnumerable<Cid> cids = await Program.CoreApi.Bitswap.WantsAsync(peer);
+        return Program.Output(app, cids, (data, writer) =>
         {
-            var Program = Parent.Parent;
-            var peer = PeerId == null
-                ? null
-                : new MultiHash(PeerId);
-            var cids = await Program.CoreApi.Bitswap.WantsAsync(peer);
-            return Program.Output(app, cids, (data, writer) =>
+            foreach (Cid cid in data)
             {
-                foreach (var cid in data)
-                {
-                    writer.WriteLine(cid.Encode());
-                }
-            });
-        }
+                writer.WriteLine(cid.Encode());
+            }
+        });
     }
+}
 
-    [Command(Description = "Remove a block from the wantlist")]
-    class BitswapUnwantCommand : CommandBase
+[Command(Name = "stat", Description = "Show bitswap information")]
+internal class BitswapStatCommand : CommandBase
+{
+    private BitswapCommand Parent { get; set; }
+
+    protected override async Task<int> OnExecute(CommandLineApplication app)
     {
-        [Argument(0, "cid", "The content ID of the block")]
-        [Required]
-        public string Cid { get; set; }
+        Program Program = Parent.Parent;
 
-        BitswapCommand Parent { get; set; }
-
-        protected override async Task<int> OnExecute(CommandLineApplication app)
-        {
-            var Program = Parent.Parent;
-            await Program.CoreApi.Bitswap.UnwantAsync(Cid);
-            return 0;
-        }
+        CoreApi.BitswapData stats = await Program.CoreApi.Stats.BitswapAsync();
+        return Program.Output(app, stats, null);
     }
-
-    [Command(Description = "Show the current ledger for a peer")]
-    class BitswapLedgerCommand : CommandBase
-    {
-        [Argument(0, "peerid", "The PeerID (B58) of the ledger to inspect")]
-        [Required]
-        public string PeerId { get; set; }
-
-        BitswapCommand Parent { get; set; }
-
-        protected override async Task<int> OnExecute(CommandLineApplication app)
-        {
-            var Program = Parent.Parent;
-            var peer = new Peer { Id = PeerId };
-            var ledger = await Program.CoreApi.Bitswap.LedgerAsync(peer);
-            return Program.Output(app, ledger, null);
-        }
-    }
-
-    [Command(Description = "Show bitswap information")]
-    class BitswapStatCommand : CommandBase
-    {
-        BitswapCommand Parent { get; set; }
-
-        protected override async Task<int> OnExecute(CommandLineApplication app)
-        {
-            var Program = Parent.Parent;
-
-            var stats = await Program.CoreApi.Stats.BitswapAsync();
-            return Program.Output(app, stats, null);
-        }
-    }
-
 }

@@ -1,109 +1,103 @@
 ﻿using McMaster.Extensions.CommandLineUtils;
-using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace Ipfs.Cli
+namespace Ipfs.Cli.Commands;
+
+[Command(Name = "add", Description = "Add the bootstrap peer")]
+[Subcommand(typeof(BootstrapAddDefaultCommand))]
+internal class BootstrapAddCommand : CommandBase
 {
-    [Command(Description = "Manage bootstrap peers")]
-    [Subcommand("list", typeof(BootstrapListCommand))]
-    [Subcommand("rm", typeof(BootstrapRemoveCommand))]
-    [Subcommand("add", typeof(BootstrapAddCommand))]
-    class BootstrapCommand : CommandBase
-    {
-        public Program Parent { get; set; }
+    [Argument(0, "addr", "A multiaddress to the peer")]
+    public string Address { get; set; }
 
-        protected override Task<int> OnExecute(CommandLineApplication app)
-        {
-            app.ShowHelp();
-            return Task.FromResult(0);
-        }
+    public BootstrapCommand Parent { get; set; }
+
+    protected override async Task<int> OnExecute(CommandLineApplication app)
+    {
+        Program Program = Parent.Parent;
+        _ = await Program.CoreApi.Bootstrap.AddAsync(Address);
+        return 0;
     }
+}
 
-    [Command(Description = "List the bootstrap peers")]
-    class BootstrapListCommand : CommandBase
+[Command(Name = "default", Description = "Add the default bootstrap peers")]
+internal class BootstrapAddDefaultCommand : CommandBase
+{
+    private BootstrapAddCommand Parent { get; set; }
+
+    protected override async Task<int> OnExecute(CommandLineApplication app)
     {
-        BootstrapCommand Parent { get; set; }
-
-        protected override async Task<int> OnExecute(CommandLineApplication app)
+        Program Program = Parent.Parent.Parent;
+        IEnumerable<MultiAddress> peers = await Program.CoreApi.Bootstrap.AddDefaultsAsync();
+        return Program.Output(app, peers, (data, writer) =>
         {
-            var Program = Parent.Parent;
-            var peers = await Program.CoreApi.Bootstrap.ListAsync();
-            return Program.Output(app, peers, (data, writer) =>
+            foreach (MultiAddress a in data)
             {
-                foreach (var addresss in data)
-                {
-                    writer.WriteLine(addresss);
-                }
-            });
-        }
+                writer.WriteLine(a);
+            }
+        });
     }
+}
 
-    [Command(Description = "Add the bootstrap peer")]
-    [Subcommand("default", typeof(BootstrapAddDefaultCommand))]
-    class BootstrapAddCommand : CommandBase
+[Command(Name = "bootstrap", Description = "Manage bootstrap peers")]
+[Subcommand(typeof(BootstrapListCommand))]
+[Subcommand(typeof(BootstrapRemoveCommand))]
+[Subcommand(typeof(BootstrapAddCommand))]
+internal class BootstrapCommand : CommandBase
+{
+    public Program Parent { get; set; }
+
+    protected override Task<int> OnExecute(CommandLineApplication app)
     {
-        [Argument(0, "addr", "A multiaddress to the peer")]
-        public string Address { get; set; }
-
-        public BootstrapCommand Parent { get; set; }
-
-        protected override async Task<int> OnExecute(CommandLineApplication app)
-        {
-            var Program = Parent.Parent;
-            await Program.CoreApi.Bootstrap.AddAsync(Address);
-            return 0;
-        }
+        app.ShowHelp();
+        return Task.FromResult(0);
     }
+}
 
-    [Command(Description = "Add the default bootstrap peers")]
-    class BootstrapAddDefaultCommand : CommandBase
+[Command(Name = "list", Description = "List the bootstrap peers")]
+internal class BootstrapListCommand : CommandBase
+{
+    private BootstrapCommand Parent { get; set; }
+
+    protected override async Task<int> OnExecute(CommandLineApplication app)
     {
-        BootstrapAddCommand Parent { get; set; }
-
-        protected override async Task<int> OnExecute(CommandLineApplication app)
+        Program Program = Parent.Parent;
+        IEnumerable<MultiAddress> peers = await Program.CoreApi.Bootstrap.ListAsync();
+        return Program.Output(app, peers, (data, writer) =>
         {
-            var Program = Parent.Parent.Parent;
-            var peers = await Program.CoreApi.Bootstrap.AddDefaultsAsync();
-            return Program.Output(app, peers, (data, writer) =>
+            foreach (MultiAddress addresss in data)
             {
-                foreach (var a in data)
-                {
-                    writer.WriteLine(a);
-                }
-            });
-        }
+                writer.WriteLine(addresss);
+            }
+        });
     }
+}
 
-    [Command(Description = "Remove the bootstrap peer")]
-    [Subcommand("all", typeof(BootstrapRemoveAllCommand))]
-    class BootstrapRemoveCommand : CommandBase
+[Command(Name = "rm", Description = "Remove the bootstrap peer")]
+[Subcommand(typeof(BootstrapRemoveAllCommand))]
+internal class BootstrapRemoveCommand : CommandBase
+{
+    [Argument(0, "addr", "A multiaddress to the peer")]
+    public string Address { get; set; }
+
+    public BootstrapCommand Parent { get; set; }
+
+    protected override async Task<int> OnExecute(CommandLineApplication app)
     {
-        [Argument(0, "addr", "A multiaddress to the peer")]
-        public string Address { get; set; }
-
-        public BootstrapCommand Parent { get; set; }
-
-        protected override async Task<int> OnExecute(CommandLineApplication app)
-        {
-            var Program = Parent.Parent;
-            await Program.CoreApi.Bootstrap.RemoveAsync(Address);
-            return 0;
-        }
+        Program Program = Parent.Parent;
+        _ = await Program.CoreApi.Bootstrap.RemoveAsync(Address);
+        return 0;
     }
+}
 
-    [Command(Description = "Remove all the bootstrap peers")]
-    class BootstrapRemoveAllCommand : CommandBase
+[Command(Name = "all", Description = "Remove all the bootstrap peers")]
+internal class BootstrapRemoveAllCommand : CommandBase
+{
+    private BootstrapRemoveCommand Parent { get; set; }
+
+    protected override async Task<int> OnExecute(CommandLineApplication app)
     {
-        BootstrapRemoveCommand Parent { get; set; }
-
-        protected override async Task<int> OnExecute(CommandLineApplication app)
-        {
-            var Program = Parent.Parent.Parent;
-            await Program.CoreApi.Bootstrap.RemoveAllAsync();
-            return 0;
-        }
+        Program Program = Parent.Parent.Parent;
+        await Program.CoreApi.Bootstrap.RemoveAllAsync();
+        return 0;
     }
 }

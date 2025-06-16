@@ -1,39 +1,30 @@
-﻿using Makaretu.Dns;
+﻿using Ipfs.CoreApi;
+using Makaretu.Dns;
+using PeerTalk;
 using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Ipfs.CoreApi;
-using System.Linq;
-using PeerTalk;
 
 namespace Ipfs.Engine.CoreApi
 {
-    class DnsApi : IDnsApi
+    internal class DnsApi(IpfsEngine ipfs) : IDnsApi
     {
-        IpfsEngine ipfs;
-
-        public DnsApi(IpfsEngine ipfs)
-        {
-            this.ipfs = ipfs;
-        }
-
-        public async Task<string> ResolveAsync(string name, bool recursive = false, CancellationToken cancel = default(CancellationToken))
+        public async Task<string> ResolveAsync(string name, bool recursive = false, CancellationToken cancel = default)
         {
             // Find the TXT dnslink in either <name> or _dnslink.<name>.
             string link = null;
-            using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancel))
+            using (CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancel))
             {
                 try
                 {
-                    var attempts = new Task<string>[]
-                    {
+                    Task<string>[] attempts =
+                    [
                         FindAsync(name, cts.Token),
                         FindAsync("_dnslink." + name, cts.Token)
-                    };
+                    ];
                     link = await TaskHelper.WhenAnyResultAsync(attempts, cancel).ConfigureAwait(false);
-                    cts.Cancel();
+                    await cts.CancelAsync();
                 }
                 catch (Exception e)
                 {
@@ -41,31 +32,24 @@ namespace Ipfs.Engine.CoreApi
                 }
             }
 
-            if (!recursive || link.StartsWith("/ipfs/"))
-                return link;
-
-            if (link.StartsWith("/ipns/"))
-            {
-                return await ipfs.Name.ResolveAsync(link, recursive, false, cancel).ConfigureAwait(false);
-            }
-
-            throw new NotSupportedException($"Cannot resolve '{link}'.");
+            return !recursive || link.StartsWith("/ipfs/")
+                ? link
+                : link.StartsWith("/ipns/")
+                ? await ipfs.Name.ResolveAsync(link, recursive, false, cancel).ConfigureAwait(false)
+                : throw new NotSupportedException($"Cannot resolve '{link}'.");
         }
 
-        async Task<string> FindAsync(string name, CancellationToken cancel)
+        private async Task<string> FindAsync(string name, CancellationToken cancel)
         {
-            var response = await ipfs.Options.Dns.QueryAsync(name, DnsType.TXT, cancel).ConfigureAwait(false);
-            var link = response.Answers
+            Message response = await ipfs.Options.Dns.QueryAsync(name, DnsType.TXT, cancel).ConfigureAwait(false);
+            string link = response.Answers
                 .OfType<TXTRecord>()
                 .SelectMany(txt => txt.Strings)
                 .Where(s => s.StartsWith("dnslink="))
-                .Select(s => s.Substring(8))
+                .Select(s => s[8..])
                 .FirstOrDefault();
 
-            if (link == null)
-                throw new Exception($"'{name}' is missing a TXT record with a dnslink.");
-
-            return link;
+            return link ?? throw new Exception($"'{name}' is missing a TXT record with a dnslink.");
         }
     }
 }

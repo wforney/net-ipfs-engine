@@ -1,68 +1,60 @@
-﻿using Ipfs.Engine;
-using McMaster.Extensions.CommandLineUtils;
-using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
-using System.Text;
-using System.Threading.Tasks;
+﻿using McMaster.Extensions.CommandLineUtils;
 
-namespace Ipfs.Cli
+namespace Ipfs.Cli.Commands;
+
+[Command(Name = "bw", Description = "IPFS bandwidth information")]
+internal class StatsBandwidthCommand : CommandBase
 {
-    [Command(Description = "Query IPFS statistics")]
-    [Subcommand("bw", typeof(StatsBandwidthCommand))]
-    [Subcommand("repo", typeof(StatsRepoCommand))]
-    [Subcommand("bitswap", typeof(StatsBitswapCommand))]
-    class StatsCommand : CommandBase
+    private StatsCommand Parent { get; set; }
+
+    protected override async Task<int> OnExecute(CommandLineApplication app)
     {
-        public Program Parent { get; set; }
+        Program Program = Parent.Parent;
 
-        protected override Task<int> OnExecute(CommandLineApplication app)
-        {
-            app.ShowHelp();
-            return Task.FromResult(0);
-        }
+        CoreApi.BandwidthData stats = await Program.CoreApi.Stats.BandwidthAsync();
+        return Program.Output(app, stats, null);
     }
+}
 
-    [Command(Description = "IPFS bandwidth information")]
-    class StatsBandwidthCommand : CommandBase
+[Command(Name = "stats", Description = "Query IPFS statistics")]
+[Subcommand(typeof(StatsBandwidthCommand))]
+[Subcommand(typeof(StatsRepoCommand))]
+[Subcommand(typeof(StatsBitswapCommand))]
+internal class StatsCommand : CommandBase
+{
+    public Program Parent { get; set; }
+
+    protected override Task<int> OnExecute(CommandLineApplication app)
     {
-        StatsCommand Parent { get; set; }
-
-        protected override async Task<int> OnExecute(CommandLineApplication app)
-        {
-            var Program = Parent.Parent;
-
-            var stats = await Program.CoreApi.Stats.BandwidthAsync();
-            return Program.Output(app, stats, null);
-        }
+        app.ShowHelp();
+        return Task.FromResult(0);
     }
+}
 
-    [Command(Description = "Repository information")]
-    class StatsRepoCommand : CommandBase
+[Command(Name = "repo", Description = "Repository information")]
+internal class StatsRepoCommand : CommandBase
+{
+    private StatsCommand Parent { get; set; }
+
+    protected override async Task<int> OnExecute(CommandLineApplication app)
     {
-        StatsCommand Parent { get; set; }
+        Program Program = Parent.Parent;
 
-        protected override async Task<int> OnExecute(CommandLineApplication app)
-        {
-            var Program = Parent.Parent;
-
-            var stats = await Program.CoreApi.Stats.RepositoryAsync();
-            return Program.Output(app, stats, null);
-        }
+        CoreApi.RepositoryData stats = await Program.CoreApi.Stats.RepositoryAsync();
+        return Program.Output(app, stats, null);
     }
+}
 
-    [Command(Description = "Bitswap information")]
-    class StatsBitswapCommand : CommandBase
+[Command(Name = "bitswap", Description = "Bitswap information")]
+internal class StatsBitswapCommand : CommandBase
+{
+    private StatsCommand Parent { get; set; }
+
+    protected override async Task<int> OnExecute(CommandLineApplication app)
     {
-        StatsCommand Parent { get; set; }
+        Program Program = Parent.Parent;
 
-        protected override async Task<int> OnExecute(CommandLineApplication app)
-        {
-            var Program = Parent.Parent;
-
-            var stats = await Program.CoreApi.Stats.BitswapAsync();
-            return Program.Output(app, stats, null);
-        }
+        CoreApi.BitswapData stats = await Program.CoreApi.Stats.BitswapAsync();
+        return Program.Output(app, stats, null);
     }
-
 }
